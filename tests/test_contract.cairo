@@ -2,7 +2,7 @@ use snforge_std::forge_print::PrintTrait;
 use core::result::ResultTrait;
 use starknet::ContractAddress;
 
-use snforge_std::{declare, ContractClassTrait};
+use snforge_std::{declare, ContractClass, ContractClassTrait};
 use starknet::contract_address_const;
 
 use circuitbreaker::account::interface::IAccountSafeDispatcher;
@@ -16,40 +16,105 @@ use circuitbreaker::tests::mocks::defi::{
 };
 use circuitbreaker::tests::mocks::erc20::{IERC20SafeDispatcher, IERC20SafeDispatcherTrait};
 use array::ArrayTrait;
-use snforge_std::{start_prank, start_warp};
+use snforge_std::{start_prank, start_warp, stop_prank};
 
-fn setup() -> (
-    IMockDefiProtocolSafeDispatcher,
-    ICircuitBreakerSafeDispatcher,
-    ContractAddress,
-    IERC20SafeDispatcher
-) {
+// fn setup() -> (
+//     IMockDefiProtocolSafeDispatcher,
+//     ICircuitBreakerSafeDispatcher,
+//     ContractAddress,
+//     IERC20SafeDispatcher
+// ) {
+//     let alice: ContractAddress = contract_address_const::<123>();
+//     let token1 = deploy_token_contract('ERC20', 'Akash1', 'AK1');
+//     let token2 = deploy_token_contract('ERC20c', 'Neelesh1', 'NH1');
+//     let circuitBreaker = deploy_circuit_breaker(
+//         'CircuitBreaker', alice, 259200_u64, 14400_u64, 300_u64
+//     );
+//     let mockdefi = deploy_defi('MockDeFiProtocol', circuitBreaker, token1);
+
+//     let mut address: Array<ContractAddress> = ArrayTrait::new();
+//     address.append(mockdefi);
+
+//     start_prank(circuitBreaker, alice);
+//     let circuit_breaker = get_circuit_breaker(circuitBreaker);
+//     circuit_breaker.addProtectedContracts(address);
+//     circuit_breaker.registerAsset(token1, 7000, 1000);
+//     circuit_breaker.registerAsset(token2, 7000, 1000);
+//     start_warp(circuitBreaker, 3600);
+//     let mock_defi = get_defi_contract(mockdefi);
+//     let token_imp = get_token_contract(token1);
+//     return (mock_defi, circuit_breaker, mockdefi, token_imp);
+// }
+
+// fn setup() {
+//     let alice: ContractAddress = contract_address_const::<123>();
+//     let declare = declare_token_contract('ERC20');
+//     let token1 = deploy_token_contract(declare, 'Akash1', 'AK1');
+//     let token2 = deploy_token_contract(declare, 'Neelesh1', 'NH1');
+//     let circuitBreaker = deploy_circuit_breaker(
+//         'CircuitBreaker', alice, 259200_u64, 14400_u64, 300_u64
+//     );
+//     let mockdefi = deploy_defi('MockDeFiProtocol', circuitBreaker, token1);
+
+//     let mut address: Array<ContractAddress> = ArrayTrait::new();
+//     address.append(mockdefi);
+
+//     start_prank(circuitBreaker, alice);
+//     let circuit_breaker = get_circuit_breaker(circuitBreaker);
+//     start_prank(circuitBreaker, alice);
+//     circuit_breaker.addProtectedContracts(address);
+//     start_prank(circuitBreaker, alice);
+//     circuit_breaker.registerAsset(token1, 7000, 1000);
+//     circuit_breaker.registerAsset(token2, 7000, 1000);
+//     start_warp(circuitBreaker, 3600);
+// // let mock_defi = get_defi_contract(mockdefi);
+// // let token_imp = get_token_contract(token1);
+// // return (mock_defi, circuit_breaker, mockdefi, token_imp);
+// }
+
+#[test]
+fn test_deposit_withdrawNoLimitTokenShouldBeSuccessful() {
     let alice: ContractAddress = contract_address_const::<123>();
-    let token1 = deploy_token_contract('ERC20', 'Akash1', 'AK1');
-    let token2 = deploy_token_contract('ERC20c', 'Neelesh1', 'NH1');
+    let declare = declare_token_contract('ERC20');
+    let token1 = deploy_token_contract(declare, 'Akash1', 'AK1');
+    // let token2 = deploy_token_contract('ERC20c', 'Neelesh1', 'NH1');
     let circuitBreaker = deploy_circuit_breaker(
         'CircuitBreaker', alice, 259200_u64, 14400_u64, 300_u64
     );
     let mockdefi = deploy_defi('MockDeFiProtocol', circuitBreaker, token1);
+    let mock_defi = get_defi_contract(mockdefi);
 
     let mut address: Array<ContractAddress> = ArrayTrait::new();
     address.append(mockdefi);
 
     start_prank(circuitBreaker, alice);
     let circuit_breaker = get_circuit_breaker(circuitBreaker);
+    start_prank(circuitBreaker, alice);
     circuit_breaker.addProtectedContracts(address);
+    start_prank(circuitBreaker, alice);
     circuit_breaker.registerAsset(token1, 7000, 1000);
-    circuit_breaker.registerAsset(token2, 7000, 1000);
+    // circuit_breaker.registerAsset(token2, 7000, 1000);
     start_warp(circuitBreaker, 3600);
-    let mock_defi = get_defi_contract(mockdefi);
-    let token_imp = get_token_contract(token1);
-    return (mock_defi, circuit_breaker, mockdefi, token_imp);
+
+    let token_unlimited = deploy_token_contract(declare, 'DAI', 'DAI');
+    let tokenunlimited = get_token_contract(token_unlimited);
+    tokenunlimited.mint(alice, 10000_u256);
+
+    tokenunlimited.approve(mockdefi, 10000_u256);
+
+    mock_defi.deposit(token_unlimited, 10000_u256);
+
+    assert(circuit_breaker.isRateLimitTriggered(token_unlimited).unwrap() == false, 'Incorrect');
+}
+
+fn declare_token_contract(contract_name: felt252) -> ContractClass {
+    let contract = declare(contract_name);
+    contract
 }
 
 fn deploy_token_contract(
-    contract_name: felt252, name: felt252, symbol: felt252
+    contract: ContractClass, name: felt252, symbol: felt252
 ) -> ContractAddress {
-    let contract = declare(contract_name);
     let mut calldata: Array<felt252> = ArrayTrait::new();
     Serde::serialize(@name, ref calldata);
     Serde::serialize(@symbol, ref calldata);
@@ -119,23 +184,97 @@ fn deploy_contract(name: felt252) -> ContractAddress {
 
 #[test]
 fn test_get_name() {
-    let contract_address = deploy_token_contract('ERC20', 'DAI', 'DAI');
+    let declare = declare_token_contract('ERC20');
+    let contract_address = deploy_token_contract(declare, 'DAI', 'DAI');
     let contracterc20 = get_token_contract(contract_address);
     let name = contracterc20.name().unwrap();
     assert(name == 'DAI', 'Error');
 }
 
-// #[test]
-// fn test_deploy_circuit() {
-//     let alice: ContractAddress = contract_address_const::<123>();
-//     let contract_address = deploy_circuit_breaker(
-//         'CircuitBreaker', alice, 259200_u64, 14400_u64, 300_u64
-//     );
-//     let contract = get_circuit_breaker(contract_address);
-//     let res = contract.isRateLimited().unwrap();
+#[test]
+fn test_deposit_shouldBeSuccessful() {
+    let alice: ContractAddress = contract_address_const::<123>();
+    let declare = declare_token_contract('ERC20');
+    let token1 = deploy_token_contract(declare, 'Akash1', 'AK1');
+    let token2 = deploy_token_contract(declare, 'Neelesh1', 'NH1');
+    let circuitBreaker = deploy_circuit_breaker(
+        'CircuitBreaker', alice, 259200_u64, 14400_u64, 300_u64
+    );
+    let circuit_breaker = get_circuit_breaker(circuitBreaker);
+    let token_1 = get_token_contract(token1);
+    let token_2 = get_token_contract(token2);
+    let mockdefi = deploy_defi('MockDeFiProtocol', circuitBreaker, token1);
+    let mock_defi = get_defi_contract(mockdefi);
 
-//     assert(res == false, 'Eror');
-// }
+    let mut address: Array<ContractAddress> = ArrayTrait::new();
+    address.append(mockdefi);
+
+    start_prank(circuitBreaker, alice);
+    let circuit_breaker = get_circuit_breaker(circuitBreaker);
+    start_prank(circuitBreaker, alice);
+    circuit_breaker.addProtectedContracts(address);
+    start_prank(circuitBreaker, alice);
+    circuit_breaker.registerAsset(token1, 7000, 1000);
+    circuit_breaker.registerAsset(token2, 7000, 1000);
+    start_warp(circuitBreaker, 3600);
+
+    token_1.mint(alice, 10000_u256);
+    start_prank(token1, alice);
+    token_1.approve(mockdefi, 10000_u256);
+    mock_defi.deposit(token1, 10_u256);
+
+    assert(circuit_breaker.isRateLimitTriggered(token1).unwrap() == false, 'False');
+}
+
+#[test]
+fn test_withdrawal_shouldBeSuccessful() {
+    let alice: ContractAddress = contract_address_const::<123>();
+    let declare = declare_token_contract('ERC20');
+    let token1 = deploy_token_contract(declare, 'Akash1', 'AK1');
+    let token2 = deploy_token_contract(declare, 'Neelesh1', 'NH1');
+    let circuitBreaker = deploy_circuit_breaker(
+        'CircuitBreaker', alice, 259200_u64, 14400_u64, 300_u64
+    );
+    let circuit_breaker = get_circuit_breaker(circuitBreaker);
+    let token_1 = get_token_contract(token1);
+    let token_2 = get_token_contract(token2);
+    let mockdefi = deploy_defi('MockDeFiProtocol', circuitBreaker, token1);
+    let mock_defi = get_defi_contract(mockdefi);
+
+    let mut address: Array<ContractAddress> = ArrayTrait::new();
+    address.append(mockdefi);
+
+    start_prank(circuitBreaker, alice);
+    let circuit_breaker = get_circuit_breaker(circuitBreaker);
+    start_prank(circuitBreaker, alice);
+    circuit_breaker.addProtectedContracts(address);
+    start_prank(circuitBreaker, alice);
+    circuit_breaker.registerAsset(token1, 7000, 1000);
+    circuit_breaker.registerAsset(token2, 7000, 1000);
+    start_warp(circuitBreaker, 3600);
+
+    token_1.mint(alice, 10000_u256);
+    start_prank(token1, alice);
+    token_1.approve(mockdefi, 10000_u256);
+    mock_defi.deposit(token1, 1000_u256);
+
+    start_warp(mockdefi, 3600);
+    mock_defi.withdrawal(token1, 60_u256);
+
+    assert(circuit_breaker.isRateLimitTriggered(token1).unwrap() == false, 'Incorrect');
+}
+
+#[test]
+fn test_deploy_circuit() {
+    let alice: ContractAddress = contract_address_const::<123>();
+    let contract_address = deploy_circuit_breaker(
+        'CircuitBreaker', alice, 259200_u64, 14400_u64, 300_u64
+    );
+    let contract = get_circuit_breaker(contract_address);
+    let res = contract.isRateLimited().unwrap();
+
+    assert(res == false, 'Eror');
+}
 
 #[test]
 fn test_get_signer_public_key() {
@@ -146,41 +285,69 @@ fn test_get_signer_public_key() {
     let guardian: felt252 = safe_dispatcher.get_signer_public_key().unwrap();
     assert(guardian == 'signer public key', 'Error bro');
 }
+#[test]
+fn test_deposit_withDrawNoLimitTokenShouldBeSuccessful() {
+    let alice: ContractAddress = contract_address_const::<123>();
+    let declare = declare_token_contract('ERC20');
+    let token1 = deploy_token_contract(declare, 'Akash1', 'AK1');
+    // let token2 = deploy_token_contract('ERC20c', 'Neelesh1', 'NH1');
+    let circuitBreaker = deploy_circuit_breaker(
+        'CircuitBreaker', alice, 259200_u64, 14400_u64, 300_u64
+    );
+    let mockdefi = deploy_defi('MockDeFiProtocol', circuitBreaker, token1);
+    let mock_defi = get_defi_contract(mockdefi);
 
-// #[test]
-// fn test_deposit_withDrawNoLimitTokenShouldBeSuccessful() {
-//     let (mock_defi, circuit_breaker, mockdefi) = deployContracts1();
-//     // let token1 = deploy_token_contract('ERC20', 'Akash1', 'AK1');
-//     // let token2 = deploy_token_contract('ERC20', 'Neelesh1', 'NH1');
-//     // let circuitBreaker = deploy_circuit_breaker('CircuitBreaker', '259200', '14400', '300');
-//     // let mockdefi = deploy_defi('MockDeFiProtocol', circuitBreaker);
+    let mut address: Array<ContractAddress> = ArrayTrait::new();
+    address.append(mockdefi);
 
-//     // let mut address: Array<ContractAddress> = ArrayTrait::new();
-//     // address.append(mockdefi);
+    start_prank(circuitBreaker, alice);
+    let circuit_breaker = get_circuit_breaker(circuitBreaker);
+    start_prank(circuitBreaker, alice);
+    circuit_breaker.addProtectedContracts(address);
+    start_prank(circuitBreaker, alice);
+    circuit_breaker.registerAsset(token1, 7000, 1000);
+    // circuit_breaker.registerAsset(token2, 7000, 1000);
+    start_warp(circuitBreaker, 3600);
+    // let token1 = deploy_token_contract('ERC20', 'Akash1', 'AK1');
+    // let token2 = deploy_token_contract('ERC20', 'Neelesh1', 'NH1');
+    // let circuitBreaker = deploy_circuit_breaker('CircuitBreaker', '259200', '14400', '300');
+    // let mockdefi = deploy_defi('MockDeFiProtocol', circuitBreaker);
 
-//     // start_prank(circuitBreaker, 123.try_into().unwrap());
-//     // let circuit_breaker = get_circuit_breaker(circuitBreaker);
-//     // circuit_breaker.addProtectedContracts(address);
-//     // circuit_breaker.registerAsset(token1, 7000, 1000);
-//     // circuit_breaker.registerAsset(token2, 7000, 1000);
-//     // start_warp(circuitBreaker, 3600);
-//     // let mock_defi = get_defi_contract(mockdefi);
+    // let mut address: Array<ContractAddress> = ArrayTrait::new();
+    // address.append(mockdefi);
 
-//     let alice: ContractAddress = contract_address_const::<123>();
-//     let unlimitedToken: ContractAddress = deploy_token_contract('ERC20', 'DAI', 'DAI');
-//     let unlimited_token = get_token_contract(unlimitedToken);
-//     unlimited_token.mint(alice, 10000_u256);
-//     // let val : u256 = unlimited_token.balance_of(alice).unwrap();
+    // start_prank(circuitBreaker, 123.try_into().unwrap());
+    // let circuit_breaker = get_circuit_breaker(circuitBreaker);
+    // circuit_breaker.addProtectedContracts(address);
+    // circuit_breaker.registerAsset(token1, 7000, 1000);
+    // circuit_breaker.registerAsset(token2, 7000, 1000);
+    // start_warp(circuitBreaker, 3600);
+    // let mock_defi = get_defi_contract(mockdefi);
 
-//     // start_prank(unlimitedToken, alice);
-//     // unlimited_token.approve(mockdefi, 10000);
+    let alice: ContractAddress = contract_address_const::<123>();
+    let unlimitedToken: ContractAddress = deploy_token_contract(declare, 'DAI', 'DAI');
+    let unlimited_token = get_token_contract(unlimitedToken);
+    unlimited_token.mint(alice, 10000_u256);
+    let val: u256 = unlimited_token.balance_of(alice).unwrap();
 
-//     // mock_defi.deposit(unlimitedToken, 10000);
+    start_prank(unlimitedToken, alice);
+    unlimited_token.approve(mockdefi, 10000);
 
-//     let res: bool = circuit_breaker.isRateLimitTriggered(unlimitedToken).unwrap();
-//     // res.print();
-//     assert(circuit_breaker.isRateLimitTriggered(unlimitedToken).unwrap() == false, 'Error');
-// }
+    mock_defi.deposit(unlimitedToken, 10000);
+    let res: bool = circuit_breaker.isRateLimitTriggered(unlimitedToken).unwrap();
+    // res.print();
+    assert(circuit_breaker.isRateLimitTriggered(unlimitedToken).unwrap() == false, 'Error');
+
+    let withdrawal_amount = 300001_u256;
+    start_warp(mockdefi, 3600);
+
+    start_prank(mockdefi, alice);
+    mock_defi.withdrawal(unlimitedToken, 10000_u256);
+
+    let res: bool = circuit_breaker.isRateLimitTriggered(unlimitedToken).unwrap();
+    // res.print();
+    assert(circuit_breaker.isRateLimitTriggered(unlimitedToken).unwrap() == false, 'Error');
+}
 // #[test]
 
 //This fn has not been implemented yet should implement
@@ -243,44 +410,94 @@ fn test_get_signer_public_key() {
 
 // <--------------------------------------------------------------------------->
 
+// #[test]
+// fn test_breach() {
+//     let alice: ContractAddress = contract_address_const::<123>();
+//     let declare = declare_token_contract('ERC20');
+//     let token1 = deploy_token_contract(declare, 'Akash1', 'AK1');
+//     let token2 = deploy_token_contract(declare, 'Neelesh1', 'NH1');
+
+//     let circuitBreaker = deploy_circuit_breaker(
+//         'CircuitBreaker', alice, 259200_u64, 14400_u64, 300_u64
+//     );
+//     // let protectedContract = deploy_protected_contract('ProtectedContract', circuitBreaker);
+//     let mockdefi = deploy_defi('MockDeFiProtocol', circuitBreaker, token1);
+
+//     let mut address: Array<ContractAddress> = ArrayTrait::new();
+//     address.append(mockdefi);
+
+//     start_prank(circuitBreaker, alice);
+//     let circuit_breaker = get_circuit_breaker(circuitBreaker);
+
+//     circuit_breaker.addProtectedContracts(address);
+
+//     circuit_breaker.registerAsset(token1, 7000_u256, 1000_u256);
+//     let limiter = circuit_breaker.get_token_limiter(token1).unwrap();
+//     assert(limiter.min_liq_retained_bps == 7000_u256, 'Not right');
+//     assert(limiter.limit_begin_threshold == 1000_u256, 'Not right');
+//     circuit_breaker.registerAsset(token2, 7000_u256, 1000_u256);
+//     start_warp(circuitBreaker, 3600);
+//     let mock_defi = get_defi_contract(mockdefi);
+//     let token_imp = get_token_contract(token1);
+//     stop_prank(circuitBreaker);
+//     // //Setup ends here
+
+//     token_imp.mint(alice, 1000000_u256);
+
+//     start_prank(token1, alice);
+//     token_imp.approve(mockdefi, 1000000_u256);
+//     // // stop_prank(token1);
+
+//     start_prank(mockdefi, alice);
+//     mock_defi.deposit(token1, 1000000_u256);
+
+//     let balance = token_imp.balance_of(mockdefi);
+//     // balance.unwrap().print();
+//     // assert(balance.unwrap() == 1000000_u256, 'Incorrect');
+//     // //HACK
+//     let withdrawal_amount = 300000_u256;
+//     start_warp(mockdefi, 18000);
+
+//     // mock_defi.withdrawal(token1, withdrawal_amount);
+//     mock_defi.withdrawal(token1, withdrawal_amount);
+//     stop_prank(mockdefi);
+//     assert(circuit_breaker.isRateLimitTriggered(token1).unwrap() == true, 'not triggered');
+// }
+
 #[test]
-fn test_breach() {
+fn test_breachAndLimitExpired() {
     let alice: ContractAddress = contract_address_const::<123>();
-    let token1 = deploy_token_contract('ERC20', 'Akash1', 'AK1');
-    let token2 = deploy_token_contract('ERC20c', 'Neelesh1', 'NH1');
+    let declare = declare_token_contract('ERC20');
+    let token1 = deploy_token_contract(declare, 'Akash1', 'AK1');
+    let token2 = deploy_token_contract(declare, 'Neelesh1', 'NH1');
     let circuitBreaker = deploy_circuit_breaker(
         'CircuitBreaker', alice, 259200_u64, 14400_u64, 300_u64
     );
-    // let protectedContract = deploy_protected_contract('ProtectedContract', circuitBreaker);
+    let circuit_breaker = get_circuit_breaker(circuitBreaker);
+    let token_1 = get_token_contract(token1);
+    let token_2 = get_token_contract(token2);
     let mockdefi = deploy_defi('MockDeFiProtocol', circuitBreaker, token1);
+    let mock_defi = get_defi_contract(mockdefi);
 
     let mut address: Array<ContractAddress> = ArrayTrait::new();
     address.append(mockdefi);
 
     start_prank(circuitBreaker, alice);
     let circuit_breaker = get_circuit_breaker(circuitBreaker);
+    start_prank(circuitBreaker, alice);
     circuit_breaker.addProtectedContracts(address);
-    circuit_breaker.registerAsset(token1, 7000_u256, 1000_u256);
-    circuit_breaker.registerAsset(token2, 7000_u256, 1000_u256);
+    start_prank(circuitBreaker, alice);
+    circuit_breaker.registerAsset(token1, 7000, 1000);
+    circuit_breaker.registerAsset(token2, 7000, 1000);
     start_warp(circuitBreaker, 3600);
-    let mock_defi = get_defi_contract(mockdefi);
-    let token_imp = get_token_contract(token1);
 
-    //Setup ends here
-
-    token_imp.mint(alice, 1000000_u256);
-
+    token_1.mint(alice, 1000000_u256);
     start_prank(token1, alice);
-    token_imp.approve(mockdefi, 1000000_u256);
-
-    start_prank(mockdefi, alice);
+    token_1.approve(mockdefi, 1000000_u256);
     mock_defi.deposit(token1, 1000000_u256);
 
-    // //HACK
-    let withdrawal_amount = 300000_u256;
+    let withdrawal_amount: u256 = 300001_u256;
     start_warp(mockdefi, 18000);
-    start_prank(mockdefi, alice);
-    // mock_defi.withdrawal(token1, withdrawal_amount);
     mock_defi.withdrawal(token1, withdrawal_amount);
-    assert(circuit_breaker.isRateLimitTriggered(token1).unwrap() == true, 'not triggered');
+    assert(circuit_breaker.isRateLimitTriggered(token1).unwrap() == true, 'Incorrect');
 }

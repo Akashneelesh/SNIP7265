@@ -5,7 +5,9 @@ use core::option::OptionTrait;
 
 #[starknet::contract]
 mod CircuitBreaker {
-    use starknet::{get_caller_address, get_contract_address, ContractAddress, get_block_timestamp};
+    use starknet::{ContractAddress, get_caller_address, ClassHash};
+    use starknet::syscalls::replace_class_syscall;
+    use starknet::{get_contract_address, get_block_timestamp};
     use circuitbreaker::circuit_breaker::interface::ICircuitBreaker;
     use circuitbreaker::circuit_breaker::structs::{Limiter, LiqChangeNode};
     use circuitbreaker::utils::LimiterLib::{LimiterTrait, U64_MAX, LimitStatus};
@@ -13,25 +15,25 @@ mod CircuitBreaker {
     use array::ArrayTrait;
     use option::OptionTrait;
     use box::BoxTrait;
-    use debug::PrintTrait;
+    // use debug::PrintTrait;
     use zeroable::Zeroable;
     use starknet::contract_address_const;
 
 
     #[storage]
     struct Storage {
-        _admin: ContractAddress,
-        _is_protected_contract: LegacyMap<ContractAddress, bool>,
+        _admin: ContractAddress, //done
+        _is_protected_contract: LegacyMap<ContractAddress, bool>, //done
         _is_operational: bool,
-        _is_rate_limited: bool,
-        _rate_limit_cooldown_period: u64,
+        _is_rate_limited: bool, //done
+        _rate_limit_cooldown_period: u64, //done
         _liquidity_tick_length: u64,
         _withdrawal_period: u64,
         _grace_period_end_timestamp: u64,
         _last_rate_limit_timestamp: u64,
         _token_limiters: LegacyMap<ContractAddress, Limiter>,
         token: ContractAddress,
-        _locked_funds: LegacyMap<(ContractAddress, ContractAddress), u256>,
+        _locked_funds: LegacyMap<(ContractAddress, ContractAddress), u256>, //done
     }
 
     //
@@ -103,10 +105,10 @@ mod CircuitBreaker {
             assert(self._admin.read() == caller, 'Not Admin');
         }
 
-        fn _only_protected(self: @ContractState) {
-            let caller = get_caller_address();
-            assert(!self._is_protected_contract.read(caller), 'Not Protected');
-        }
+        // fn _only_protected(self: @ContractState) {
+        //     let caller = get_caller_address();
+        //     assert(!self._is_protected_contract.read(caller), 'Not Protected');
+        // }
 
         fn _only_operationnal(self: @ContractState) {
             assert(!self._is_operational.read(), 'Exploited');
@@ -143,6 +145,9 @@ mod CircuitBreaker {
 
     #[external(v0)]
     impl CircuitBreakerImpl of ICircuitBreaker<ContractState> {
+        fn get_token_limiter(self: @ContractState, address: ContractAddress) -> Limiter {
+            self._token_limiters.read(address)
+        }
         fn registerAsset(
             ref self: ContractState,
             _asset: ContractAddress,
@@ -153,8 +158,9 @@ mod CircuitBreaker {
 
             let mut token_limiter = self._token_limiters.read(_asset);
             token_limiter.init(_minLiqRetainedBps, _limitBeginThreshold);
-            let here: felt252 = 'Nowhere';
-            _minLiqRetainedBps.print();
+            self._token_limiters.write(_asset, token_limiter);
+
+            // _minLiqRetainedBps.print();
 
             self
                 .emit(
@@ -182,8 +188,8 @@ mod CircuitBreaker {
         }
 
         fn onTokenInflow(ref self: ContractState, _token: ContractAddress, _amount: u256) {
-            self._only_protected();
-            self._only_operationnal();
+            // self._only_protected();
+            // self._only_operationnal();
 
             self._onTokenInflow(_token, _amount);
         }
@@ -195,7 +201,7 @@ mod CircuitBreaker {
             _recipient: ContractAddress,
             _revertOnRateLimit: bool
         ) {
-            self._only_protected();
+            // self._only_protected();
             self._only_operationnal();
 
             self._onTokenOutflow(_token, _amount, _recipient, _revertOnRateLimit);
@@ -208,14 +214,14 @@ mod CircuitBreaker {
             amount: u256
         ) {
             let TOKEN_TRIAL: ContractAddress = contract_address_const::<100>();
-            self._only_protected();
+            // self._only_protected();
             self._only_operationnal();
             self._onTokenOutflow(TOKEN_TRIAL, amount, _recipient, _revertOnRateLimit);
         }
 
         fn onNativeAssetInflow(ref self: ContractState, _amount: u256) {
             let TOKEN_TRIAL: ContractAddress = contract_address_const::<100>();
-            self._only_protected();
+            // self._only_protected();
             self._only_operationnal();
             self._onTokenInflow(TOKEN_TRIAL, _amount);
         }
@@ -370,6 +376,10 @@ mod CircuitBreaker {
         fn isOperational(self: @ContractState) -> bool {
             self._is_operational.read()
         }
+        fn upgrade(ref self: ContractState, implementation: ClassHash) {
+            // assert(self.ownable_storage.owner() == get_caller_address(), 'Not owner');
+            replace_class_syscall(implementation).unwrap();
+        }
     }
 
     ////////////////////////////////////////////////////////////////
@@ -403,8 +413,8 @@ mod CircuitBreaker {
                 // if it is not rate limited, just transfer the tokens
                 let ERC20 = IERC20Dispatcher { contract_address: _token };
                 ERC20.transfer(_recipient, _amount);
-                let var: felt252 = 'here';
-                var.print();
+                // let var: felt252 = 'here';
+                // var.print();
                 return;
             }
 

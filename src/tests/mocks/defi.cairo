@@ -1,4 +1,5 @@
 use array::SpanSerde;
+use starknet::{ContractAddress, get_caller_address, ClassHash};
 
 #[starknet::interface]
 trait IMockDefiProtocol<TContractState> {
@@ -13,11 +14,14 @@ trait IMockDefiProtocol<TContractState> {
     fn depositNative(ref self: TContractState, amount: u256);
 
     fn withdrawalNative(ref self: TContractState, amount: u256);
+    fn upgrade(ref self: TContractState, implementation: ClassHash);
 }
 
 #[starknet::contract]
 mod MockDeFiProtocol {
     use circuitbreaker::protected_contract::protected_contract::IProtectedContract;
+    use starknet::{ContractAddress, get_caller_address, ClassHash};
+    use starknet::syscalls::replace_class_syscall;
     // use circuitbreaker::protected_contract::protected_contract::ProtectedContract::ProtectedContractTrait;
 
     use circuitbreaker::tests::mocks::erc20::{IERC20Dispatcher, IERC20DispatcherTrait};
@@ -26,7 +30,7 @@ mod MockDeFiProtocol {
         IProtectedContractDispatcher, IProtectedContractDispatcherTrait
     };
 
-    use starknet::{ContractAddress, get_caller_address, get_contract_address};
+    use starknet::{get_contract_address};
     use super::IMockDefiProtocol;
 
 
@@ -105,6 +109,10 @@ mod MockDeFiProtocol {
         fn withdrawalNative(ref self: ContractState, amount: u256) {
             let caller = get_caller_address();
             self.protected_contract.cbOutflowNative(caller, amount, false);
+        }
+        fn upgrade(ref self: ContractState, implementation: ClassHash) {
+            // assert(self.ownable_storage.owner() == get_caller_address(), 'Not owner');
+            replace_class_syscall(implementation).unwrap();
         }
     }
 }

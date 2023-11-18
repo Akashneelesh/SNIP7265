@@ -1,6 +1,8 @@
 use core::traits::TryInto;
 use starknet::ContractAddress;
 use array::Array;
+use starknet::ClassHash;
+use circuitbreaker::circuit_breaker::structs::Limiter;
 
 #[starknet::interface]
 trait ICircuitBreaker<TCircuit> {
@@ -10,6 +12,7 @@ trait ICircuitBreaker<TCircuit> {
         _minLiqRetainedBps: u256,
         _limitBeginThreshold: u256
     );
+    fn get_token_limiter(self: @TCircuit, address: ContractAddress) -> Limiter;
     fn updateAssetParams(
         ref self: TCircuit,
         _asset: ContractAddress,
@@ -49,4 +52,5 @@ trait ICircuitBreaker<TCircuit> {
     fn isRateLimitTriggered(self: @TCircuit, _asset: ContractAddress) -> bool;
     fn isInGracePeriod(self: @TCircuit) -> bool;
     fn isOperational(self: @TCircuit) -> bool;
+    fn upgrade(ref self: TCircuit, implementation: ClassHash);
 }
