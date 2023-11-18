@@ -1,0 +1,1 @@
+mod protected_contract;
