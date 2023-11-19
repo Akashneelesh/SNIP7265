@@ -1,3 +1,4 @@
+use core::clone::Clone;
 use snforge_std::forge_print::PrintTrait;
 use core::result::ResultTrait;
 use starknet::ContractAddress;
@@ -45,6 +46,33 @@ use snforge_std::{start_prank, start_warp, stop_prank};
 //     let token_imp = get_token_contract(token1);
 //     return (mock_defi, circuit_breaker, mockdefi, token_imp);
 // }
+
+fn setup() {
+    let declare = declare_token_contract('ERC20');
+    let token = deploy_token_contract(declare, 'USDC', 'USDC');
+    let admin: ContractAddress = contract_address_const::<53>();
+    let alice: ContractAddress = contract_address_const::<123>();
+    let circuitbreaker = deploy_circuit_breaker(
+        'CircuitBreaker', admin, 259200_u64, 14400_u64, 300_u64
+    );
+    let defi = deploy_defi('MockDeFiProtocol', circuitbreaker, token);
+    let mut addresses: Array<ContractAddress> = ArrayTrait::new();
+    addresses.append(defi);
+    let circuit_breaker = get_circuit_breaker(circuitbreaker);
+
+    start_prank(circuitbreaker, admin);
+    circuit_breaker.addProtectedContracts(addresses);
+
+    start_prank(circuitbreaker, admin);
+    circuit_breaker.registerAsset(token, 7000_u256, 1000_u256);
+    start_prank(circuitbreaker, admin);
+    circuit_breaker.registerAsset(contract_address_const::<1>(), 7000_u256, 1000_u256);
+    start_warp(circuitbreaker, 3600);
+
+    let secondToken = deploy_token_contract(declare, 'DAI', 'DAI');
+    start_prank(circuitbreaker, admin);
+    circuit_breaker.registerAsset(secondToken, 7000_u256, 1000_u256);
+}
 
 // fn setup() {
 //     let alice: ContractAddress = contract_address_const::<123>();
@@ -110,6 +138,43 @@ fn test_deposit_withdrawNoLimitTokenShouldBeSuccessful() {
 fn declare_token_contract(contract_name: felt252) -> ContractClass {
     let contract = declare(contract_name);
     contract
+}
+
+fn declare_defi_contract(contract_name: felt252) -> ContractClass {
+    let contract = declare(contract_name);
+    contract
+}
+
+fn declare_circuitbreaker(contract_name: felt252) -> ContractClass {
+    let contract = declare(contract_name);
+    contract
+}
+
+fn deploy_circuitbreaker1(
+    contract: ContractClass,
+    admin: ContractAddress,
+    rate_limit_cooldown_period_: u64,
+    withdrawal_period_: u64,
+    liquidity_tick_length_: u64
+) -> ContractAddress {
+    let alice: ContractAddress = contract_address_const::<123>();
+    let mut calldata: Array<felt252> = ArrayTrait::new();
+    Serde::serialize(@alice, ref calldata);
+    Serde::serialize(@rate_limit_cooldown_period_, ref calldata);
+    Serde::serialize(@withdrawal_period_, ref calldata);
+    Serde::serialize(@liquidity_tick_length_, ref calldata);
+
+    contract.deploy(@calldata).unwrap()
+}
+
+fn deploy_defi_contract1(
+    contract: ContractClass, circuit_breaker_address: ContractAddress, token: ContractAddress
+) -> ContractAddress {
+    let mut calldata: Array<felt252> = ArrayTrait::new();
+    Serde::serialize(@circuit_breaker_address, ref calldata);
+    Serde::serialize(@token, ref calldata);
+
+    contract.deploy(@calldata).unwrap()
 }
 
 fn deploy_token_contract(
@@ -203,7 +268,8 @@ fn test_deposit_shouldBeSuccessful() {
     let circuit_breaker = get_circuit_breaker(circuitBreaker);
     let token_1 = get_token_contract(token1);
     let token_2 = get_token_contract(token2);
-    let mockdefi = deploy_defi('MockDeFiProtocol', circuitBreaker, token1);
+    let declare = declare_defi_contract('MockDeFiProtocol');
+    let mockdefi = deploy_defi_contract1(declare, circuitBreaker, token1);
     let mock_defi = get_defi_contract(mockdefi);
 
     let mut address: Array<ContractAddress> = ArrayTrait::new();
@@ -550,6 +616,121 @@ fn test_should_panic() {
     assert(circuit_breaker.isRateLimited().unwrap() == true, 'error');
     assert(circuit_breaker.isRateLimitTriggered(secondToken).unwrap() == false, 'error2');
 }
-// circuit_breaker.migrateFundsAfterExploit(
 
+#[test]
+fn test_addProtectedcontracts() {
+    let declare = declare_token_contract('ERC20');
+    let token = deploy_token_contract(declare, 'USDC', 'USDC');
+    let admin: ContractAddress = contract_address_const::<53>();
+    let alice: ContractAddress = contract_address_const::<123>();
+    let circuitbreaker = deploy_circuit_breaker(
+        'CircuitBreaker', admin, 259200_u64, 14400_u64, 300_u64
+    );
+    let declare = declare_defi_contract('MockDeFiProtocol');
+    let mockdefi = deploy_defi_contract1(declare, circuitbreaker, token);
+    let mock_defi = get_defi_contract(mockdefi);
+    let mut addresses: Array<ContractAddress> = ArrayTrait::new();
+    addresses.append(mockdefi);
+    let circuit_breaker = get_circuit_breaker(circuitbreaker);
+
+    start_prank(circuitbreaker, admin);
+    circuit_breaker.addProtectedContracts(addresses);
+
+    start_prank(circuitbreaker, admin);
+    circuit_breaker.registerAsset(token, 7000_u256, 1000_u256);
+    start_prank(circuitbreaker, admin);
+    circuit_breaker.registerAsset(contract_address_const::<1>(), 7000_u256, 1000_u256);
+    start_warp(circuitbreaker, 3600);
+
+    let secondToken = deploy_token_contract(declare, 'DAI', 'DAI');
+    start_prank(circuitbreaker, admin);
+    circuit_breaker.registerAsset(secondToken, 7000_u256, 1000_u256);
+
+    let secondDefi = deploy_defi_contract1(declare, circuitbreaker, token);
+
+    let mut addresses: Array<ContractAddress> = ArrayTrait::new();
+    addresses.append(secondDefi);
+
+    start_prank(circuitbreaker, admin);
+    circuit_breaker.addProtectedContracts(addresses);
+
+    assert(circuit_breaker.isProtectedContract(secondDefi).unwrap() == true, 'issue');
+}
+
+#[test]
+fn test_removeProtectedContract() {
+    let declare = declare_token_contract('ERC20');
+    let token = deploy_token_contract(declare, 'USDC', 'USDC');
+    let admin: ContractAddress = contract_address_const::<53>();
+    let alice: ContractAddress = contract_address_const::<123>();
+    let circuitbreaker = deploy_circuit_breaker(
+        'CircuitBreaker', admin, 259200_u64, 14400_u64, 300_u64
+    );
+    let declare = declare_defi_contract('MockDeFiProtocol');
+    let mockdefi = deploy_defi_contract1(declare, circuitbreaker, token);
+    let mock_defi = get_defi_contract(mockdefi);
+    let mut addresses: Array<ContractAddress> = ArrayTrait::new();
+    addresses.append(mockdefi);
+    let circuit_breaker = get_circuit_breaker(circuitbreaker);
+
+    start_prank(circuitbreaker, admin);
+    circuit_breaker.addProtectedContracts(addresses);
+
+    start_prank(circuitbreaker, admin);
+    circuit_breaker.registerAsset(token, 7000_u256, 1000_u256);
+    start_prank(circuitbreaker, admin);
+    circuit_breaker.registerAsset(contract_address_const::<1>(), 7000_u256, 1000_u256);
+    start_warp(circuitbreaker, 3600);
+
+    let secondToken = deploy_token_contract(declare, 'DAI', 'DAI');
+    start_prank(circuitbreaker, admin);
+    circuit_breaker.registerAsset(secondToken, 7000_u256, 1000_u256);
+
+    let secondDefi = deploy_defi_contract1(declare, circuitbreaker, token);
+
+    let mut addresses: Array<ContractAddress> = ArrayTrait::new();
+    addresses.append(secondDefi);
+
+    start_prank(circuitbreaker, admin);
+    circuit_breaker.addProtectedContracts(addresses);
+
+    let mut addressess: Array<ContractAddress> = ArrayTrait::new();
+    addressess.append(secondDefi);
+
+    start_prank(circuitbreaker, admin);
+    circuit_breaker.removeProtectedContracts(addressess);
+    assert(circuit_breaker.isProtectedContract(secondDefi).unwrap() == false, 'incorrect');
+}
+#[test]
+fn test_initialization() {
+    let declare = declare_token_contract('ERC20');
+    let token = deploy_token_contract(declare, 'USDC', 'USDC');
+    let admin: ContractAddress = contract_address_const::<53>();
+    let alice: ContractAddress = contract_address_const::<123>();
+    let declare = declare_circuitbreaker('CircuitBreaker');
+    let circuitbreaker = deploy_circuitbreaker1(declare, admin, 259200_u64, 14400_u64, 300_u64);
+
+    let declare = declare_defi_contract('MockDeFiProtocol');
+    let mockdefi = deploy_defi_contract1(declare, circuitbreaker, token);
+    let mock_defi = get_defi_contract(mockdefi);
+    let mut addresses: Array<ContractAddress> = ArrayTrait::new();
+    addresses.append(mockdefi);
+    let circuit_breaker = get_circuit_breaker(circuitbreaker);
+
+    start_prank(circuitbreaker, admin);
+    circuit_breaker.addProtectedContracts(addresses);
+
+    start_prank(circuitbreaker, admin);
+    circuit_breaker.registerAsset(token, 7000_u256, 1000_u256);
+    start_prank(circuitbreaker, admin);
+    circuit_breaker.registerAsset(contract_address_const::<1>(), 7000_u256, 1000_u256);
+    start_warp(circuitbreaker, 3600);
+
+    let newCircuitBreaker = deploy_circuit_breaker(
+        'CircuitBreaker', admin, 259200_u64, 14400_u64, 300_u64
+    );
+
+    let new_circuitbreaker = get_circuit_breaker(newCircuitBreaker);
+    assert(new_circuitbreaker.admin().unwrap() == admin, 'Not the admin');
+}
 
