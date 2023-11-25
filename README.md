@@ -1,4 +1,4 @@
-# SNIP7265
+# SNIP7265 (WIP)
 Features
 Protocol-Agnostic Approach to ERC20/Native Rate-Limiting
 Our system takes a protocol-agnostic approach, seamlessly integrating with ERC20 and Native tokens while incorporating robust rate-limiting mechanisms.
